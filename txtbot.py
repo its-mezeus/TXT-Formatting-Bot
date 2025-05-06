@@ -1,12 +1,14 @@
 import telebot
 from telebot import types
+from flask import Flask, request
 import os
-from flask import Flask
-from werkzeug.serving import run_simple
 
 BOT_TOKEN = "7120774765:AAG-Ut25oOwSxlF-kUQ5k2nTjGZiw42UVuo"
-CHANNEL_USERNAME = "botsproupdates"  # Without @
+CHANNEL_USERNAME = "botsproupdates"
+WEBHOOK_URL = "https://txt-formatting-bot.onrender.com"
+
 bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__)
 
 FORMATS = [
     ("txt", "📄"), ("html", "🌐"), ("json", "🗂"), ("csv", "📊"), ("xml", "📦"),
@@ -20,7 +22,6 @@ FORMATS = [
 user_format = {}
 user_text = {}
 
-# Force join check
 def check_user_joined(user_id):
     try:
         member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
@@ -28,7 +29,6 @@ def check_user_joined(user_id):
     except:
         return False
 
-# Start command
 @bot.message_handler(commands=['start'])
 def start(message):
     if not check_user_joined(message.from_user.id):
@@ -47,7 +47,6 @@ def start(message):
         "<b>This bot allows you to convert text into various file formats. Use /textfile to get started. 📂</b>",
         parse_mode="HTML", reply_markup=markup)
 
-# /textfile command
 @bot.message_handler(commands=['textfile'])
 def textfile(message):
     if not check_user_joined(message.from_user.id):
@@ -58,17 +57,12 @@ def textfile(message):
             parse_mode="HTML", reply_markup=markup)
         return
 
-    # Arranging buttons in 3 rows
-    markup = types.InlineKeyboardMarkup(row_width=3)  # Three buttons per row
-    rows = [
-        [types.InlineKeyboardButton(f"{emoji} {ext.upper()}", callback_data=f"format_{ext}") for ext, emoji in FORMATS[i:i+3]] 
-        for i in range(0, len(FORMATS), 3)
-    ]
-    markup.add(*[button for row in rows for button in row])  # Flatten rows and add buttons to markup
-
+    markup = types.InlineKeyboardMarkup(row_width=3)
+    buttons = [types.InlineKeyboardButton(f"{emoji} {ext.upper()}", callback_data=f"format_{ext}") for ext, emoji in FORMATS]
+    for i in range(0, len(buttons), 3):
+        markup.row(*buttons[i:i+3])
     bot.send_message(message.chat.id, "<b>Choose a file format to save your text: 📑</b>", parse_mode="HTML", reply_markup=markup)
 
-# Format selection handler
 @bot.callback_query_handler(func=lambda call: call.data.startswith("format_"))
 def handle_format(call):
     ext = call.data.split("_")[1]
@@ -76,21 +70,23 @@ def handle_format(call):
     msg = bot.send_message(call.message.chat.id, f"<b>Great! Send me the text to save as .{ext} ✍️</b>", parse_mode="HTML")
     bot.delete_message(call.message.chat.id, call.message.message_id)
 
-# Text input after format selection
 @bot.message_handler(func=lambda m: m.from_user.id in user_format)
 def get_text(message):
     ext = user_format.pop(message.from_user.id)
     text = message.text
+    watermark = "\n\n<b>CREATED WITH @TEXTFILEFORMATTING_BOT</b>" if ext in ['html', 'xml'] else "\n\nCREATED WITH @TEXTFILEFORMATTING_BOT"
+    text += watermark
     file_name = f"text_file.{ext}"
     with open(file_name, "w", encoding="utf-8") as f:
         f.write(text)
     with open(file_name, "rb") as doc:
-        sent = bot.send_document(message.chat.id, doc, caption=f"<b>Your file is ready: {file_name}</b>\n<b>Want to rename it?</b>\nSend the new name with extension.", parse_mode="HTML")
+        sent = bot.send_document(message.chat.id, doc,
+            caption=f"<b>Your file is ready: {file_name}</b>\n<b>Want to rename it?</b>\nSend the new name with extension.",
+            parse_mode="HTML")
     os.remove(file_name)
     user_text[message.from_user.id] = text
     bot.delete_message(message.chat.id, message.message_id)
 
-# Rename file
 @bot.message_handler(func=lambda m: m.from_user.id in user_text)
 def rename_file(message):
     name = message.text.strip()
@@ -105,7 +101,6 @@ def rename_file(message):
     os.remove(name)
     bot.delete_message(message.chat.id, message.message_id)
 
-# Split file command
 @bot.message_handler(commands=['spl'])
 def split_file(message):
     try:
@@ -133,21 +128,30 @@ def split_file(message):
     for i, chunk in enumerate(chunks, start=1):
         filename = f"part_{i}.txt"
         with open(filename, "w", encoding="utf-8") as f:
-            f.write('\n'.join(chunk))
+            f.write('\n'.join(chunk) + "\n\nCREATED WITH @TEXTFILEFORMATTING_BOT")
         with open(filename, "rb") as doc:
             bot.send_document(message.chat.id, doc, caption=f"<b>Split part {i}</b>", parse_mode="HTML")
         os.remove(filename)
     bot.delete_message(message.chat.id, message.message_id)
 
-# Flask app to keep the bot alive
-app = Flask(__name__)
+# Flask route for webhook
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    return '', 403
 
 @app.route('/')
 def index():
-    return "Bot is running!"
+    return 'Bot is running!'
 
-if __name__ == '__main__':
-    # Run Flask app on Render
-    bot.remove_webhook()
-    bot.set_webhook(url='https://your-render-app-url.com')  # Replace with your render app URL
-    run_simple('0.0.0.0', 5000, app)
+# Set webhook
+bot.remove_webhook()
+bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
+
+# Run Flask app
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
