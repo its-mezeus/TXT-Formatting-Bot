@@ -22,7 +22,6 @@ FORMATS = [
 ]
 user_format = {}
 user_text = {}
-WATERMARK = "**CREATED WITH @TEXTFILEFORMATTING_BOT**"
 
 # === Helper Function ===
 def check_user_joined(user_id):
@@ -44,7 +43,7 @@ def start(message):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("Owner 🙂", url="https://t.me/zeus_is_here"))
     bot.send_message(message.chat.id,
-        "<b>Welcome to the Text-to-File Bot! 🎉</b>\n\n<b>Use /textfile to start converting text to file.</b>\n<b>Use /spl 300 (reply to TXT) to split large files.</b>",
+        "<b>Welcome to the Text-to-File Bot! 🎉</b>\n\n<b>Use /textfile to start converting text to file.</b>\n<b>Use /spl [ 50 TO 500 LINES ] (reply to TXT) to split large files.</b>",
         parse_mode="HTML", reply_markup=markup)
 
 @bot.message_handler(commands=['textfile'])
@@ -70,7 +69,7 @@ def handle_format(call):
 @bot.message_handler(func=lambda m: m.from_user.id in user_format)
 def get_text(message):
     ext = user_format.pop(message.from_user.id)
-    text = message.text + "\n\n" + WATERMARK
+    text = message.text
     filename = f"textfile.{ext}"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(text)
@@ -115,7 +114,7 @@ def split_file(message):
     for i, part in enumerate(parts, 1):
         part_name = f"part_{i}.txt"
         with open(part_name, "w", encoding="utf-8") as f:
-            f.write('\n'.join(part) + "\n\n" + WATERMARK)
+            f.write('\n'.join(part))
         with open(part_name, "rb") as f:
             bot.send_document(message.chat.id, f, caption=f"<b>Split part {i}</b>", parse_mode="HTML")
         os.remove(part_name)
