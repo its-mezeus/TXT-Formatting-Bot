@@ -4,7 +4,7 @@ import telebot
 from telebot import types
 
 # === Configuration ===
-BOT_TOKEN = "7120774765:AAFY03aZOQ96L23uKYKv1oXm562cPVWAZ_Q"
+BOT_TOKEN = "7120774765:AAEEivSZelVYobwsJLK0g3KWCY2LX7aN48U"
 CHANNEL_USERNAME = "botsproupdates"
 WEBHOOK_URL = f"https://txt-formatting-bot.onrender.com/{BOT_TOKEN}"
 
