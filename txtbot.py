@@ -8,7 +8,7 @@ import re
 # === Configuration ===
 BOT_TOKEN = "7120774765:AAEEivSZelVYobwsJLK0g3KWCY2LX7aN48U"
 CHANNEL_USERNAME = "botsproupdates"
-WEBHOOK_URL = f"https://txt-formatting-bot.onrender.com/{BOT_TOKEN}"
+WEBHOOK_URL = f"https://txt-formatting-bot.onrender.com/7120774765:AAEEivSZelVYobwsJLK0g3KWCY2LX7aN48U"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
