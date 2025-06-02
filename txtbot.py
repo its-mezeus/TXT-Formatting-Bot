@@ -2,6 +2,8 @@ import os
 from flask import Flask, request
 import telebot
 from telebot import types
+from urllib.parse import urlparse
+import re
 
 # === Configuration ===
 BOT_TOKEN = "7120774765:AAEEivSZelVYobwsJLK0g3KWCY2LX7aN48U"
@@ -43,7 +45,7 @@ def start(message):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("Owner 🙂", url="https://t.me/zeus_is_here"))
     bot.send_message(message.chat.id,
-        "<b>Welcome to the Text-to-File Bot! 🎉</b>\n\n<b>Use /textfile to start converting text to file.</b>\n<b>Use /spl [ 50 TO 500 LINES ] (reply to TXT) to split large files.</b>",
+        "<b>Welcome to the Text-to-File Bot! 🎉</b>\n\n<b>Use /textfile to start converting text to file.</b>\n<b>Use /spl [ 50 TO 500 LINES ] (reply to TXT) to split large files.</b>\n<b>Use /clean (reply to TXT) to remove duplicate domains.</b>",
         parse_mode="HTML", reply_markup=markup)
 
 @bot.message_handler(commands=['textfile'])
@@ -118,6 +120,40 @@ def split_file(message):
         with open(part_name, "rb") as f:
             bot.send_document(message.chat.id, f, caption=f"<b>Split part {i}</b>", parse_mode="HTML")
         os.remove(part_name)
+
+@bot.message_handler(commands=['clean'])
+def clean_duplicates(message):
+    reply = message.reply_to_message
+    if not reply or not reply.document:
+        bot.reply_to(message, "<b>Reply to a .txt file to clean it (remove duplicate domains).</b>", parse_mode="HTML")
+        return
+
+    file_info = bot.get_file(reply.document.file_id)
+    content = bot.download_file(file_info.file_path).decode("utf-8")
+    lines = content.splitlines()
+
+    seen_domains = set()
+    unique_lines = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        match = re.search(r'https?://[^\s]+', line)
+        if match:
+            domain = urlparse(match.group()).netloc.lower()
+            if domain not in seen_domains:
+                seen_domains.add(domain)
+                unique_lines.append(line)
+        else:
+            unique_lines.append(line)
+
+    cleaned_name = "cleaned_urls.txt"
+    with open(cleaned_name, "w", encoding="utf-8") as f:
+        f.write('\n'.join(unique_lines))
+    with open(cleaned_name, "rb") as f:
+        bot.send_document(message.chat.id, f, caption="<b>Cleaned file (duplicates removed by domain)</b>", parse_mode="HTML")
+    os.remove(cleaned_name)
 
 # === Flask Webhook ===
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
