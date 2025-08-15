@@ -1,12 +1,13 @@
 import os
 import re
 import threading
+import random
 from urllib.parse import urlparse
 from flask import Flask
 import telebot
 from telebot import types
 from faker import Faker
-import random
+from faker.config import AVAILABLE_LOCALES
 
 # === Configuration from environment variables ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -29,9 +30,39 @@ FORMATS = [
 user_format = {}
 user_text = {}
 
-# Faker locales
-faker = Faker()
-SUPPORTED_LOCALES = Faker.locales
+# === Faker setup ===
+SUPPORTED_LOCALES = [locale.lower() for locale in AVAILABLE_LOCALES]
+
+def generate_fake_address(country_code=None):
+    """Generate fake address for a given country code or random."""
+    if country_code:
+        country_code = country_code.lower()
+        if country_code not in SUPPORTED_LOCALES:
+            return (
+                f"❌ Country code '{country_code}' not supported.\n"
+                f"Example: /fakeaddress en_us\n"
+                f"Some supported codes: {', '.join(SUPPORTED_LOCALES[:10])}..."
+            )
+    else:
+        country_code = random.choice(SUPPORTED_LOCALES)
+
+    fake = Faker(country_code)
+    name = fake.name()
+    street = fake.street_address()
+    city = fake.city()
+    state = getattr(fake, 'state', lambda: '')()
+    zipcode = getattr(fake, 'postcode', lambda: '')()
+    country = getattr(fake, 'country', lambda: '')()
+
+    return (
+        f"📍 Fake Address ({country_code})\n"
+        f"Name: {name}\n"
+        f"Street: {street}\n"
+        f"City: {city}\n"
+        f"State: {state}\n"
+        f"Zip Code: {zipcode}\n"
+        f"Country: {country}"
+    )
 
 # === Helper functions ===
 def check_user_joined(user_id):
@@ -213,9 +244,9 @@ def clean_and_extract_cc(message):
     else:
         bot.send_message(message.chat.id, "<b>No valid CCs found.</b>", parse_mode="HTML")
 
-# === Fake Address Command ===
+# === New Fake Address Command ===
 @bot.message_handler(commands=['fakeaddress'])
-def fake_address(message):
+def fakeaddress_command(message):
     if not check_user_joined(message.from_user.id):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Join our Channel 🔔", url=f"https://t.me/{CHANNEL_USERNAME}"))
@@ -223,25 +254,9 @@ def fake_address(message):
         return
 
     args = message.text.split()
-    if len(args) > 1:
-        country_code = args[1].lower()
-        if country_code not in [c.lower() for c in SUPPORTED_LOCALES]:
-            bot.send_message(message.chat.id, "<b>❌ Invalid country code!</b>\n\nAvailable codes:\n" + ", ".join(sorted(SUPPORTED_LOCALES)), parse_mode="HTML")
-            return
-        locale_code = next(c for c in SUPPORTED_LOCALES if c.lower() == country_code)
-    else:
-        locale_code = random.choice(SUPPORTED_LOCALES)
-
-    local_faker = Faker(locale_code)
-    fake_info = (
-        f"🆔 <b>Name:</b> {local_faker.name()}\n"
-        f"🏠 <b>Address:</b>\n{local_faker.address()}\n"
-        f"📧 <b>Email:</b> {local_faker.email()}\n"
-        f"📞 <b>Phone:</b> {local_faker.phone_number()}\n"
-        f"🏢 <b>Company:</b> {local_faker.company()}\n"
-        f"🌍 <b>Locale:</b> {locale_code}"
-    )
-    bot.send_message(message.chat.id, fake_info, parse_mode="HTML")
+    country_code = args[1] if len(args) > 1 else None
+    address = generate_fake_address(country_code)
+    bot.send_message(message.chat.id, f"<pre>{address}</pre>", parse_mode="HTML")
 
 # === Flask app ===
 app = Flask(__name__)
