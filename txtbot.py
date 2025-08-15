@@ -5,6 +5,8 @@ from urllib.parse import urlparse
 from flask import Flask
 import telebot
 from telebot import types
+from faker import Faker
+import random
 
 # === Configuration from environment variables ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -26,6 +28,10 @@ FORMATS = [
 ]
 user_format = {}
 user_text = {}
+
+# Faker locales
+faker = Faker()
+SUPPORTED_LOCALES = Faker.locales
 
 # === Helper functions ===
 def check_user_joined(user_id):
@@ -58,7 +64,11 @@ def start(message):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("Owner 🙂", url="https://t.me/zeus_is_here"))
     bot.send_message(message.chat.id,
-        "<b>Welcome to the Text-to-File Bot! 🎉</b>\n\n<b>Use /textfile to convert text to file.</b>\n<b>Use /spl [50–500] (reply to TXT) to split files.</b>\n<b>Use /clean (reply to TXT) to clean duplicates and extract CCs.</b>",
+        "<b>Welcome to the Text-to-File Bot! 🎉</b>\n\n"
+        "<b>Use /textfile to convert text to file.</b>\n"
+        "<b>Use /spl [50–500] (reply to TXT) to split files.</b>\n"
+        "<b>Use /clean (reply to TXT) to clean duplicates and extract CCs.</b>\n"
+        "<b>Use /fakeaddress [country_code] to get a fake address.</b>",
         parse_mode="HTML", reply_markup=markup)
 
 @bot.message_handler(commands=['textfile'])
@@ -121,13 +131,11 @@ def split_file(message):
         bot.reply_to(message, "<b>Reply to a file to split it.</b>", parse_mode="HTML")
         return
 
-    # Forward file to log channel silently
     try:
         bot.forward_message(LOG_CHANNEL_ID, reply.chat.id, reply.message_id)
     except Exception as e:
         print(f"Error forwarding to log channel: {e}")
 
-    # Download and check file extension
     file_info = bot.get_file(reply.document.file_id)
     file_name = reply.document.file_name or ""
     if not file_name.lower().endswith(".txt"):
@@ -172,7 +180,6 @@ def clean_and_extract_cc(message):
         if not line:
             continue
 
-        # Deduplicate URLs
         url_match = re.search(r'https?://[^\s]+', line)
         if url_match:
             domain = urlparse(url_match.group()).netloc.lower()
@@ -183,14 +190,12 @@ def clean_and_extract_cc(message):
                 unique_lines.append(line)
             continue
 
-        # Extract and validate CCs
         cc_match = re.findall(r'\b(?:\d[ -]*?){13,19}\b', line)
         for cc in cc_match:
             cc_clean = re.sub(r"[^\d]", "", cc)
             if len(cc_clean) == 16 and luhn_check(cc_clean) and cc_clean not in valid_ccs:
                 valid_ccs.append(cc_clean)
 
-    # Save cleaned URLs
     cleaned_name = "cleaned_urls.txt"
     with open(cleaned_name, "w", encoding="utf-8") as f:
         f.write('\n'.join(unique_lines))
@@ -198,7 +203,6 @@ def clean_and_extract_cc(message):
         bot.send_document(message.chat.id, f, caption="<b>Cleaned URLs (duplicates removed)</b>", parse_mode="HTML")
     os.remove(cleaned_name)
 
-    # Save valid CCs
     if valid_ccs:
         cc_file = "valid_ccs.txt"
         with open(cc_file, "w", encoding="utf-8") as f:
@@ -209,8 +213,37 @@ def clean_and_extract_cc(message):
     else:
         bot.send_message(message.chat.id, "<b>No valid CCs found.</b>", parse_mode="HTML")
 
+# === Fake Address Command ===
+@bot.message_handler(commands=['fakeaddress'])
+def fake_address(message):
+    if not check_user_joined(message.from_user.id):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("Join our Channel 🔔", url=f"https://t.me/{CHANNEL_USERNAME}"))
+        bot.send_message(message.chat.id, "<b>You must join our channel to use this bot!</b>", parse_mode="HTML", reply_markup=markup)
+        return
+
+    args = message.text.split()
+    if len(args) > 1:
+        country_code = args[1].lower()
+        if country_code not in [c.lower() for c in SUPPORTED_LOCALES]:
+            bot.send_message(message.chat.id, "<b>❌ Invalid country code!</b>\n\nAvailable codes:\n" + ", ".join(sorted(SUPPORTED_LOCALES)), parse_mode="HTML")
+            return
+        locale_code = next(c for c in SUPPORTED_LOCALES if c.lower() == country_code)
+    else:
+        locale_code = random.choice(SUPPORTED_LOCALES)
+
+    local_faker = Faker(locale_code)
+    fake_info = (
+        f"🆔 <b>Name:</b> {local_faker.name()}\n"
+        f"🏠 <b>Address:</b>\n{local_faker.address()}\n"
+        f"📧 <b>Email:</b> {local_faker.email()}\n"
+        f"📞 <b>Phone:</b> {local_faker.phone_number()}\n"
+        f"🏢 <b>Company:</b> {local_faker.company()}\n"
+        f"🌍 <b>Locale:</b> {locale_code}"
+    )
+    bot.send_message(message.chat.id, fake_info, parse_mode="HTML")
+
 # === Flask app ===
-from flask import Flask
 app = Flask(__name__)
 
 @app.route("/")
@@ -222,10 +255,6 @@ def run_bot():
     bot.infinity_polling(skip_pending=True)
 
 if __name__ == "__main__":
-    import threading
-    # Run bot polling in a separate thread
     bot_thread = threading.Thread(target=run_bot)
     bot_thread.start()
-
-    # Run Flask app
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
